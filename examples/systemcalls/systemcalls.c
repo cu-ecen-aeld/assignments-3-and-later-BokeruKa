@@ -1,4 +1,11 @@
 #include "systemcalls.h"
+#include <stdlib.h>
+#include <stdarg.h>
+#include <sys/types.h>
+#include <sys/stat.h>
+#include <sys/wait.h>
+#include <unistd.h>
+#include <fcntl.h>
 
 /**
  * @param cmd the command to execute with system()
@@ -11,11 +18,18 @@ bool do_system(const char *cmd)
 {
 
 /*
- * TODO  add your code here
  *  Call the system() function with the command set in the cmd
  *   and return a boolean true if the system() call completed with success
  *   or false() if it returned a failure
 */
+    int ret = system(cmd);
+    if (ret == -1 || WEXITSTATUS(ret) != 0) {
+
+        //provide the user with some information about the failure using errno
+        perror("system");
+        
+        return false;
+    }
 
     return true;
 }
@@ -50,7 +64,6 @@ bool do_exec(int count, ...)
     command[count] = command[count];
 
 /*
- * TODO:
  *   Execute a system command by calling fork, execv(),
  *   and wait instead of system (see LSP page 161).
  *   Use the command[0] as the full path to the command to execute
@@ -58,10 +71,47 @@ bool do_exec(int count, ...)
  *   as second argument to the execv() command.
  *
 */
+    pid_t pid = fork();
 
-    va_end(args);
-
-    return true;
+    switch (pid) {
+        case -1:
+            perror("fork");
+            va_end(args);
+            return false;
+        case 0:
+            /*
+             * Child process: replace this process with the requested program.
+             * `execv` does not search PATH — command[0] must be an absolute
+             * path. If execv fails we print an error and exit the child with
+             * a non-zero status so the parent can observe the failure.
+             */
+            if (execv(command[0], command) == -1) {
+                perror("execv");
+                _exit(1);
+            }
+            /* not reached */
+            break;
+        default: {
+            /*
+             * Parent process: wait for the child to terminate and interpret
+             * its exit status. Only return true for a normal exit with
+             * status 0. `va_end` must be called before returning.
+             */
+            int status;
+            if (waitpid(pid, &status, 0) == -1) {
+                perror("waitpid");
+                va_end(args);
+                return false;
+            }
+            int success = (WIFEXITED(status) && WEXITSTATUS(status) == 0);
+            if (WIFEXITED(status)) {
+                printf("Child exited with status %d\n", WEXITSTATUS(status));
+            }
+            va_end(args);
+            return success ? true : false;
+        }
+    }
+    return false;
 }
 
 /**
@@ -86,14 +136,64 @@ bool do_exec_redirect(const char *outputfile, int count, ...)
 
 
 /*
- * TODO
  *   Call execv, but first using https://stackoverflow.com/a/13784315/1446624 as a refernce,
  *   redirect standard out to a file specified by outputfile.
  *   The rest of the behaviour is same as do_exec()
  *
 */
 
-    va_end(args);
+    pid_t pid;
+    /* Open the output file (rw for owner, and read for group/others). */
+    int fd = open(outputfile, O_WRONLY | O_CREAT | O_TRUNC,
+                  S_IRUSR | S_IWUSR | S_IRGRP | S_IWGRP | S_IROTH | S_IWOTH);
+    if (fd < 0) {
+        perror("open");
+        va_end(args);
+        return false;
+    }
 
-    return true;
+    switch (pid = fork()) {
+        case -1:
+            perror("fork");
+            close(fd);
+            va_end(args);
+            return false;
+        case 0:
+            /*
+             * Child: redirect stdout to the file and exec the command. On
+             * failure we must exit the child with a non-zero status.
+             */
+            if (dup2(fd, STDOUT_FILENO) < 0) {
+                perror("dup2");
+                close(fd);
+                _exit(1);
+            }
+            close(fd);
+            if (execv(command[0], command) == -1) {
+                perror("execv");
+                _exit(1);
+            }
+            /* not reached */
+            break;
+        default: {
+            /*
+             * Parent: close the file descriptor (it's duplicated in the child),
+             * wait for the child and return true only for a successful exit.
+             */
+            close(fd);
+            int status;
+            if (waitpid(pid, &status, 0) == -1) {
+                perror("waitpid");
+                va_end(args);
+                return false;
+            }
+            int success = (WIFEXITED(status) && WEXITSTATUS(status) == 0);
+            if (WIFEXITED(status)) {
+                printf("Child exited with status %d\n", WEXITSTATUS(status));
+            }
+            va_end(args);
+            return success ? true : false;
+        }
+    }
+    return false;
 }
