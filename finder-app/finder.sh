@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/bin/sh
 #if the number of supplied parameters is less than 2, print error message and exit
 if [ $# -lt 2 ]
 then
