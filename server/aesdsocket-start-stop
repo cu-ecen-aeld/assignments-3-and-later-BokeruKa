@@ -3,7 +3,7 @@
 case "$1" in
     start)
         echo "Starting aesdsocket server"
-        start-stop-daemon -S -n aesdsocket -a /usr/bin/server/aesdsocket -b --make-pidfile --pidfile /var/run/aesdsocket.pid -- -d
+        start-stop-daemon -S -n aesdsocket -a /usr/bin/aesdsocket -b --make-pidfile --pidfile /var/run/aesdsocket.pid -- -d
         ;;
     stop)
         echo "Stopping aesdsocket server"
